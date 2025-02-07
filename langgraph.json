@@ -1,0 +1,10 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "./src/react_agent/graph.py:graph"
+  },
+  "env": ".env",
+  "mcp": {
+    "gateway_url": "http://localhost:8808"
+  }
+}

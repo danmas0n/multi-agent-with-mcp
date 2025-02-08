@@ -9,7 +9,9 @@ import json
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set, Type
 
-from langchain_core.tools import BaseTool, Tool, StructuredTool
+from langchain_core.tools import BaseTool, Tool, StructuredTool, tool
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 from pydantic import BaseModel, create_model
 
 from react_agent import mcp_client
@@ -135,6 +137,38 @@ def _load_tools() -> List[BaseTool]:
     return tools
 
 
+# Routing tools
+@tool
+def route_to_planner(query: str) -> Command:
+    """Route the workflow to the planner agent."""
+    return Command(
+        goto="planner",
+        update={"messages": [ToolMessage(content="Routing to planner", tool_name="route_to_planner")]}
+    )
+
+@tool
+def route_to_coder(query: str) -> Command:
+    """Route the workflow to the coder agent."""
+    return Command(
+        goto="coder",
+        update={"messages": [ToolMessage(content="Routing to coder", tool_name="route_to_coder")]}
+    )
+
+@tool
+def route_to_end(query: str) -> Command:
+    """End the workflow."""
+    return Command(
+        goto="__end__",
+        update={"messages": [ToolMessage(content="Ending workflow", tool_name="route_to_end")]}
+    )
+
+# Initial routing tools list
+ROUTING_TOOLS: List[BaseTool] = [
+    route_to_planner,
+    route_to_coder,
+    route_to_end
+]
+
 # Initial empty tools list - will be populated during startup
 TOOLS: List[BaseTool] = []
 
@@ -158,8 +192,9 @@ async def initialize_tools(config) -> List[BaseTool]:
     if hasattr(config, "mcp_gateway_url"):
         mcp_client.get_client(config.mcp_gateway_url)
     
-    # Load tools from gateway
-    TOOLS = _load_tools()
+    # Load tools from gateway and combine with routing tools
+    mcp_tools = _load_tools()
+    TOOLS = ROUTING_TOOLS + mcp_tools
 
     logger.info(f"Initialized {len(TOOLS)} tools")
     return TOOLS

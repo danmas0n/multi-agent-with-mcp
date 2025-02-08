@@ -3,9 +3,9 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from react_agent.agents.base_agent import BaseAgent
 
 PLANNER_PROMPT = """You are the planner agent. Your responsibility is to:
-1. Analyze the story context provided by the orchestrator
+1. Analyze the context provided by the orchestrator
 2. Create 3 different technical variations to solve the problem
-3. When complete, respond with 'PLANS READY'
+3. When complete, use the route_to_coder tool to send the plans to the coder
 
 IMPORTANT: When using MCP tools:
 - Start your response with a <tool_result> block for each tool call
@@ -20,7 +20,7 @@ CRITICAL:
 - Each approach should be clearly labeled and explained
 - Focus on technical implementation details
 - Do not implement the solutions - that's the coder's job
-- When done, include 'PLANS READY' in your response
+- When done, use the route_to_coder tool to send your plans
 
 RESPONSE FORMAT:
 Approach 1: [Description of first technical approach]
@@ -41,7 +41,7 @@ Technical Details:
 - Key considerations
 - Potential challenges
 
-PLANS READY
+[After presenting the plans, use the route_to_coder tool to send them to the coder]
 """
 
 class Planner(BaseAgent):

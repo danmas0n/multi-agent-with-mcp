@@ -1,6 +1,7 @@
-"""Define a custom multi-agent workflow for implementing Linear stories."""
+"""Define a custom multi-agent workflow for implementing coding solutions."""
 from datetime import datetime, timezone
 from typing import Dict, List, Literal, cast, Union, Any
+from langgraph.types import Command
 import asyncio
 import json
 import logging
@@ -21,7 +22,7 @@ from react_agent.agents.coder import get_coder
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class LinearWorkflow:
+class CoderWorkflow:
     def __init__(self):
         # Initialize MCP tools and shared model
         self.config = Configuration.load_from_langgraph_json()
@@ -35,7 +36,7 @@ class LinearWorkflow:
 
         # Initialize agents
         self.orchestrator = get_orchestrator(self.llm, TOOLS)
-        self.planner = get_planner(self.llm)
+        self.planner = get_planner(self.llm, TOOLS)
         self.coder = get_coder(self.llm, TOOLS)
 
     def has_tool_calls(self, message: AIMessage) -> bool:
@@ -92,7 +93,7 @@ class LinearWorkflow:
         logger.info(f"Parsed tool input: {input_data}")
         return input_data
 
-    async def execute_tool(self, state: MessagesState) -> Dict[str, List[Dict[str, Any]]]:
+    async def execute_tool(self, state: MessagesState) -> Command:
         """Execute tool with logging."""
         last_message = state['messages'][-1]
         logger.info("Executing tool...")
@@ -114,72 +115,44 @@ class LinearWorkflow:
                             try:
                                 result = await tool.ainvoke(tool_input)
                                 logger.info(f"Tool result: {result}")
-                                return {"messages": [HumanMessage(content=str(result))]}
+                                # If the tool returns a Command object (our routing tools), return it directly
+                                if isinstance(result, Command):
+                                    return result
+                                # For MCP tools, create a Command to return to the calling agent
+                                calling_agent = state.get('current_agent', 'orchestrator')
+                                return Command(
+                                    goto=calling_agent,
+                                    update={"messages": [HumanMessage(content=str(result))]}
+                                )
                             except Exception as e:
                                 logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
-                                return {"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                                calling_agent = state.get('current_agent', 'orchestrator')
+                                return Command(
+                                    goto=calling_agent,
+                                    update={"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                                )
         
         logger.warning("No tool call found in message")
-        return {"messages": []}
+        return Command(
+            goto='orchestrator',
+            update={"messages": []}
+        )
 
-    def route_orchestrator(self, state: MessagesState) -> Literal["orchestrator", "planner", "coder", "MCP1", "done"]:
+    def route_orchestrator(self, state: MessagesState) -> Literal["MCP", "__end__"]:
         """Route next steps for orchestrator agent."""
         last_message = state['messages'][-1]
         logger.info(f"Orchestrator routing - Message type: {type(last_message)}")
         
-        # Only process AIMessages
-        if not isinstance(last_message, AIMessage):
-            logger.info("Not an AIMessage - Staying with orchestrator")
-            return "orchestrator"
-            
-        # Log the full message for debugging
-        logger.info(f"Orchestrator routing - Message: {last_message}")
-        
-        # Check for tool calls in both traditional and content list formats
+        # Check for tool calls
         has_tools = self.has_tool_calls(last_message)
         logger.info(f"Message has tool calls: {has_tools}")
         if has_tools:
-            logger.info("Found tool calls - Routing to MCP1")
-            return "MCP1"
+            logger.info("Found tool calls - Routing to MCP")
+            return "MCP"
         
-        # Extract and process content
-        content = self.extract_content(last_message)
-        logger.info(f"Processed message content: {content}")
-        
-        # Check for routing signals
-        if "CONTEXT COMPLETE" in content:
-            logger.info("Found CONTEXT COMPLETE - Routing to planner")
-            return "planner"
-        elif "CODE THIS MFER" in content:
-            logger.info("Found CODE THIS MFER - Routing to coder")
-            return "coder"
-        elif "WORKFLOW COMPLETE" in content:
-            logger.info("Found WORKFLOW COMPLETE - Routing to done")
-            return "done"
-        
-        logger.info("No special conditions met - send to tool node (which will route back)")
-        return "MCP1"
-
-    def route_coder(self, state: MessagesState) -> Literal["orchestrator", "coder", "MCP2"]:
-        """Route next steps for coder agent."""
-        last_message = state['messages'][-1]
-        
-        # Only process AIMessages
-        if not isinstance(last_message, AIMessage):
-            return "coder"
-            
-        # Check for tool calls in both formats
-        if self.has_tool_calls(last_message):
-            return "MCP2"
-        
-        # Extract and process content
-        content = self.extract_content(last_message)
-        
-        if "I CODED IT MFER" in content:
-            return "orchestrator"
-        
-        # else, send to tool node (which will send it back)
-        return "MCP2"
+        # If no tool calls, end the workflow
+        logger.info("No tool calls - Ending workflow")
+        return "__end__"
 
     def setup_workflow(self):
         """Set up the workflow graph."""
@@ -189,40 +162,29 @@ class LinearWorkflow:
         workflow.add_node("orchestrator", self.orchestrator.run)
         workflow.add_node("planner", self.planner.run)
         workflow.add_node("coder", self.coder.run)
-        workflow.add_node("MCP1", self.execute_tool)
-        workflow.add_node("MCP2", self.execute_tool)
+        workflow.add_node("MCP", self.execute_tool)
 
         # Set orchestrator as the entrypoint
         workflow.add_edge("__start__", "orchestrator")
 
-        # Add conditional edges for routing between agents
+        # Add conditional edges for orchestrator routing
         workflow.add_conditional_edges(
             "orchestrator",
             self.route_orchestrator,
             {
-                "planner": "planner",
-                "coder": "coder",
-                "MCP1": "MCP1",
-                "done": "__end__"
+                "MCP": "MCP",
+                "__end__": "__end__"
             }
         )
 
-        # Planner always returns to orchestrator
-        workflow.add_edge("planner", "orchestrator")
+        # Add edges from other agents to MCP
+        workflow.add_edge("planner", "MCP")
+        workflow.add_edge("coder", "MCP")
 
-        # Add conditional edges for coder
-        workflow.add_conditional_edges(
-            "coder",
-            self.route_coder,
-            {
-                "orchestrator": "orchestrator",
-                "MCP2": "MCP2",
-            }
-        )
-
-        # Tools go back to whoever called them
-        workflow.add_edge("MCP1", "orchestrator")
-        workflow.add_edge("MCP2", "coder")
+        # Add edges from MCP to all agents
+        workflow.add_edge("MCP", "orchestrator")
+        workflow.add_edge("MCP", "planner")
+        workflow.add_edge("MCP", "coder")
 
         return workflow.compile()
 
@@ -243,5 +205,5 @@ class LinearWorkflow:
             logger.info(f"Agent message: {str(output)}")
 
 # For LangGraph Studio support
-linear_workflow = LinearWorkflow()
-graph = linear_workflow.setup_workflow()
+coder_workflow = CoderWorkflow()
+graph = coder_workflow.setup_workflow()

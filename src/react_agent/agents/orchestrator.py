@@ -16,14 +16,16 @@ Please send those tasks to them or they will be sad and you will be fired.
 CRITICAL: The planner agent may suggest multiple solutions -- if it does, the coder agent will implement each variation
 in separate branches and then tell you about them. This is why it's important that you don't create branches or write code yourself.
 
-IMPORTANT: When using MCP tools:
-- Start your response with a <tool_result> block for each tool call
-- Each tool result must be acknowledged separately
-- Format your response like this:
-  <tool_result>Acknowledging result from tool X</tool_result>
-  <tool_result>Acknowledging result from tool Y</tool_result>
-  [rest of your response]
 """
+
+#IMPORTANT: When using MCP tools:
+#- Start your response with a <tool_result> block for each tool call
+#- Each tool result must be acknowledged separately
+#- Format your response like this:
+#  <tool_result>Acknowledging result from tool X</tool_result>
+#  <tool_result>Acknowledging result from tool Y</tool_result>
+#  [rest of your response]
+#"""
 
 class Orchestrator(BaseAgent):
     def __init__(self, llm: BaseChatModel, tools: list):

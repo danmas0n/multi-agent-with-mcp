@@ -8,14 +8,6 @@ CODER_PROMPT = """You are the coder agent. Your responsibilities are:
 3. Commit the changes
 4. Use route_to_orchestrator tool when complete
 
-IMPORTANT: When using MCP tools:
-- Start your response with a <tool_result> block for each tool call
-- Each tool result must be acknowledged separately
-- Format your response like this:
-  <tool_result>Acknowledging result from tool X</tool_result>
-  <tool_result>Acknowledging result from tool Y</tool_result>
-  [rest of your response]
-
 CRITICAL:
 - Always create a new branch before making changes
 - Follow Git best practices for commits
@@ -31,6 +23,15 @@ WORKFLOW:
 4. Commit with a clear message
 5. Use route_to_orchestrator tool to return to orchestrator
 """
+
+
+#IMPORTANT: When using MCP tools:
+#- Start your response with a <tool_result> block for each tool call
+#- Each tool result must be acknowledged separately
+#- Format your response like this:
+#  <tool_result>Acknowledging result from tool X</tool_result>
+#  <tool_result>Acknowledging result from tool Y</tool_result>
+#  [rest of your response]
 
 class Coder(BaseAgent):
     def __init__(self, llm: BaseChatModel, tools: list):

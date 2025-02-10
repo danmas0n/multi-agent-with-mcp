@@ -7,14 +7,6 @@ PLANNER_PROMPT = """You are the planner agent. Your responsibility is to:
 2. Create 3 different technical variations to solve the problem
 3. When complete, use the route_to_coder tool to send the plans to the coder
 
-IMPORTANT: When using MCP tools:
-- Start your response with a <tool_result> block for each tool call
-- Each tool result must be acknowledged separately
-- Format your response like this:
-  <tool_result>Acknowledging result from tool X</tool_result>
-  <tool_result>Acknowledging result from tool Y</tool_result>
-  [rest of your response]
-
 CRITICAL:
 - Create exactly 3 different technical approaches
 - Each approach should be clearly labeled and explained
@@ -43,6 +35,15 @@ Technical Details:
 
 [After presenting the plans, use the route_to_coder tool to send them to the coder]
 """
+
+#IMPORTANT: When using MCP tools:
+#- Start your response with a <tool_result> block for each tool call
+#- Each tool result must be acknowledged separately
+#- Format your response like this:
+#  <tool_result>Acknowledging result from tool X</tool_result>
+#  <tool_result>Acknowledging result from tool Y</tool_result>
+#  [rest of your response]
+
 
 class Planner(BaseAgent):
     def __init__(self, llm: BaseChatModel, tools: list = None):

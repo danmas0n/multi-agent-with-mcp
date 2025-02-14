@@ -41,17 +41,34 @@ class CoderWorkflow:
 
     def has_tool_calls(self, message: AIMessage) -> bool:
         """Check if a message has any tool calls."""
+        logger.info(f"Checking for tool calls in message: {message}")
+        logger.info(f"Message content type: {type(message.content)}")
+        
+        # Check tool_calls in additional_kwargs
+        if hasattr(message, 'additional_kwargs'):
+            tool_calls = message.additional_kwargs.get('tool_calls', [])
+            logger.info(f"Found tool_calls in additional_kwargs: {tool_calls}")
+            if tool_calls:
+                return True
+
         # Check traditional tool_calls attribute
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            return True
+        if hasattr(message, 'tool_calls'):
+            logger.info(f"Found tool_calls attribute: {message.tool_calls}")
+            if message.tool_calls:
+                return True
             
         # Check content list for tool_use items
         if isinstance(message.content, list):
+            logger.info("Message content is a list, checking items...")
             for item in message.content:
+                logger.info(f"Checking item type: {type(item)}")
                 if isinstance(item, dict):
+                    logger.info(f"Dict item: {item}")
                     if item.get('type') == 'tool_use':
                         logger.info(f"Found tool_use in content: {item}")
                         return True
+        else:
+            logger.info(f"Message content is not a list: {message.content}")
         
         return False
 
@@ -97,15 +114,101 @@ class CoderWorkflow:
         """Execute tool with logging."""
         last_message = state['messages'][-1]
         logger.info("Executing tool...")
+        logger.info(f"Message in execute_tool: {last_message}")
+        logger.info(f"Message type: {type(last_message)}")
+        logger.info(f"Message dir: {dir(last_message)}")
+        if hasattr(last_message, 'additional_kwargs'):
+            logger.info(f"Additional kwargs in execute_tool: {last_message.additional_kwargs}")
         
+        # First check direct tool_calls attribute
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            tool_call = last_message.tool_calls[0]  # Take the first tool call
+            logger.info(f"Processing tool call from tool_calls attribute: {tool_call}")
+            
+            # Handle both dict and object formats
+            if isinstance(tool_call, dict):
+                tool_name = tool_call['name']
+                tool_args = tool_call['args']
+            else:
+                # Assume it's an object with attributes
+                tool_name = tool_call.name if hasattr(tool_call, 'name') else tool_call.function.name
+                if hasattr(tool_call, 'args'):
+                    tool_args = tool_call.args
+                else:
+                    # Parse arguments from function.arguments if needed
+                    try:
+                        tool_args = json.loads(tool_call.function.arguments)
+                    except (AttributeError, json.JSONDecodeError):
+                        logger.error(f"Failed to parse tool arguments from: {tool_call}")
+                        tool_args = {}
+
+            logger.info(f"Tool name: {tool_name}, arguments: {tool_args}")
+            
+            # Find and execute the tool
+            for tool in TOOLS:
+                if tool.name == tool_name:
+                    try:
+                        result = await tool.ainvoke(tool_args)
+                        logger.info(f"Tool result: {result}")
+                        if isinstance(result, Command):
+                            return result
+                        calling_agent = state.get('current_agent', 'orchestrator')
+                        return Command(
+                            goto=calling_agent,
+                            update={"messages": [HumanMessage(content=str(result))]}
+                        )
+                    except Exception as e:
+                        logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
+                        calling_agent = state.get('current_agent', 'orchestrator')
+                        return Command(
+                            goto=calling_agent,
+                            update={"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                        )
+        
+        # Then check for tool_calls in additional_kwargs
+        if hasattr(last_message, 'additional_kwargs'):
+            tool_calls = last_message.additional_kwargs.get('tool_calls', [])
+            if tool_calls:
+                tool_call = tool_calls[0]  # Take the first tool call
+                logger.info(f"Processing tool call from additional_kwargs: {tool_call}")
+                
+                tool_name = tool_call['function']['name']
+                try:
+                    tool_args = json.loads(tool_call['function']['arguments'])
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse tool arguments: {tool_call['function']['arguments']}")
+                    tool_args = {}
+                
+                logger.info(f"Tool name: {tool_name}, arguments: {tool_args}")
+                
+                # Find and execute the tool
+                for tool in TOOLS:
+                    if tool.name == tool_name:
+                        try:
+                            result = await tool.ainvoke(tool_args)
+                            logger.info(f"Tool result: {result}")
+                            if isinstance(result, Command):
+                                return result
+                            calling_agent = state.get('current_agent', 'orchestrator')
+                            return Command(
+                                goto=calling_agent,
+                                update={"messages": [HumanMessage(content=str(result))]}
+                            )
+                        except Exception as e:
+                            logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
+                            calling_agent = state.get('current_agent', 'orchestrator')
+                            return Command(
+                                goto=calling_agent,
+                                update={"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                            )
+        
+        # Then check for tool_use in content list
         if isinstance(last_message.content, list):
             for item in last_message.content:
                 if isinstance(item, dict) and item.get('type') == 'tool_use':
                     tool_name = item.get('name')
-                    logger.info(f"Processing tool call: {tool_name}")
-                    logger.info(f"Raw tool use block: {item}")
+                    logger.info(f"Processing tool call from content list: {item}")
                     
-                    # Parse tool input
                     tool_input = self.parse_tool_input(item)
                     logger.info(f"Parsed tool input: {tool_input}")
                     
@@ -142,6 +245,9 @@ class CoderWorkflow:
         """Route next steps for orchestrator agent."""
         last_message = state['messages'][-1]
         logger.info(f"Orchestrator routing - Message type: {type(last_message)}")
+        logger.info(f"Full message content: {last_message.content}")
+        if hasattr(last_message, 'additional_kwargs'):
+            logger.info(f"Additional kwargs: {last_message.additional_kwargs}")
         
         # Check for tool calls
         has_tools = self.has_tool_calls(last_message)
@@ -181,10 +287,21 @@ class CoderWorkflow:
         workflow.add_edge("planner", "MCP")
         workflow.add_edge("coder", "MCP")
 
-        # Add edges from MCP to all agents
-        workflow.add_edge("MCP", "orchestrator")
-        workflow.add_edge("MCP", "planner")
-        workflow.add_edge("MCP", "coder")
+        # Add conditional edges from MCP to all agents
+        def route_mcp(state: MessagesState) -> Literal["orchestrator", "planner", "coder"]:
+            # The Command object from execute_tool determines where to go
+            # This function just defines the possible routes
+            return "orchestrator"  # Default, but Command object will override
+
+        workflow.add_conditional_edges(
+            "MCP",
+            route_mcp,
+            {
+                "orchestrator": "orchestrator",
+                "planner": "planner",
+                "coder": "coder"
+            }
+        )
 
         return workflow.compile()
 

@@ -41,11 +41,26 @@ class BaseAgent:
             "all_messages": all_messages
         })
         
+        log.info(f"{self.name} full response object: {response}")
+        log.info(f"{self.name} response type: {type(response)}")
+        if hasattr(response, 'additional_kwargs'):
+            log.info(f"{self.name} additional kwargs: {response.additional_kwargs}")
+        
         response_content = response.content if hasattr(response, 'content') else str(response)
-        log.info(f"{self.name} response: {response_content}")
+        log.info(f"{self.name} response content: {response_content}")
+
+        # Preserve any additional kwargs from the response
+        message_kwargs = {}
+        if hasattr(response, 'additional_kwargs'):
+            message_kwargs = response.additional_kwargs
+            log.info(f"{self.name} preserving additional kwargs: {message_kwargs}")
 
         return {
             "messages": [
-                {"role": "ai", "content": response_content}
+                {
+                    "role": "ai",
+                    "content": response_content,
+                    **message_kwargs
+                }
             ]
         }

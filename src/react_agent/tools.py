@@ -139,7 +139,7 @@ def _load_tools() -> List[BaseTool]:
 
 # Routing tools
 @tool
-def route_to_planner(query: str) -> Command:
+def route_to_planner() -> Command:
     """Route the workflow to the planner agent."""
     return Command(
         goto="planner",
@@ -147,7 +147,7 @@ def route_to_planner(query: str) -> Command:
     )
 
 @tool
-def route_to_coder(query: str) -> Command:
+def route_to_coder() -> Command:
     """Route the workflow to the coder agent."""
     return Command(
         goto="coder",
@@ -155,7 +155,7 @@ def route_to_coder(query: str) -> Command:
     )
 
 @tool
-def route_to_end(query: str) -> Command:
+def route_to_end() -> Command:
     """End the workflow."""
     return Command(
         goto="__end__",

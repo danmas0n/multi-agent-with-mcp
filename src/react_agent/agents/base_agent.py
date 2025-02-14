@@ -62,5 +62,6 @@ class BaseAgent:
                     "content": response_content,
                     **message_kwargs
                 }
-            ]
+            ],
+            "current_agent": self.name
         }

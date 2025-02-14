@@ -7,9 +7,9 @@ import asyncio
 import inspect
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any, Callable, Dict, List, Optional, Set, Type, Annotated
 
-from langchain_core.tools import BaseTool, Tool, StructuredTool, tool
+from langchain_core.tools import BaseTool, Tool, StructuredTool, tool, InjectedToolCallId
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from pydantic import BaseModel, create_model
@@ -139,27 +139,33 @@ def _load_tools() -> List[BaseTool]:
 
 # Routing tools
 @tool
-def route_to_planner() -> Command:
+async def route_to_planner(
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
     """Route the workflow to the planner agent."""
     return Command(
         goto="planner",
-        update={"messages": [ToolMessage(content="Routing to planner", tool_name="route_to_planner")]}
+        update={"messages": [ToolMessage(content="Routing to planner", tool_call_id=tool_call_id)]}
     )
 
 @tool
-def route_to_coder() -> Command:
+async def route_to_coder(
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
     """Route the workflow to the coder agent."""
     return Command(
         goto="coder",
-        update={"messages": [ToolMessage(content="Routing to coder", tool_name="route_to_coder")]}
+        update={"messages": [ToolMessage(content="Routing to coder", tool_call_id=tool_call_id)]}
     )
 
 @tool
-def route_to_end() -> Command:
+async def route_to_end(
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
     """End the workflow."""
     return Command(
         goto="__end__",
-        update={"messages": [ToolMessage(content="Ending workflow", tool_name="route_to_end")]}
+        update={"messages": [ToolMessage(content="Ending workflow", tool_call_id=tool_call_id)]}
     )
 
 # Initial routing tools list

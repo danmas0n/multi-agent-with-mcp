@@ -5,7 +5,7 @@ from langgraph.types import Command
 import asyncio
 import json
 import logging
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, MessagesState
 from langgraph.prebuilt import ToolNode
@@ -107,6 +107,9 @@ class CoderWorkflow:
             elif isinstance(partial_json, dict):
                 input_data.update(partial_json)
         
+        # Add tool_call_id from the tool use block
+        input_data['tool_call_id'] = tool_use.get('id')
+        
         logger.info(f"Parsed tool input: {input_data}")
         return input_data
 
@@ -116,7 +119,7 @@ class CoderWorkflow:
         logger.info("Executing tool...")
         logger.info(f"Message in execute_tool: {last_message}")
         logger.info(f"Message type: {type(last_message)}")
-        logger.info(f"Message dir: {dir(last_message)}")
+        logger.info(f"Current agent: {state.get('current_agent', 'unknown')}")
         if hasattr(last_message, 'additional_kwargs'):
             logger.info(f"Additional kwargs in execute_tool: {last_message.additional_kwargs}")
         
@@ -150,8 +153,12 @@ class CoderWorkflow:
                     try:
                         result = await tool.ainvoke(tool_args)
                         logger.info(f"Tool result: {result}")
-                        if isinstance(result, Command):
+                        
+                        # Check if result has Command attributes
+                        if hasattr(result, 'goto') and hasattr(result, 'update'):
+                            logger.info(f"Command-like result detected: {result}")
                             return result
+                        
                         calling_agent = state.get('current_agent', 'orchestrator')
                         return Command(
                             goto=calling_agent,
@@ -187,8 +194,12 @@ class CoderWorkflow:
                         try:
                             result = await tool.ainvoke(tool_args)
                             logger.info(f"Tool result: {result}")
-                            if isinstance(result, Command):
+                            
+                            # Check if result has Command attributes
+                            if hasattr(result, 'goto') and hasattr(result, 'update'):
+                                logger.info(f"Command-like result detected: {result}")
                                 return result
+                            
                             calling_agent = state.get('current_agent', 'orchestrator')
                             return Command(
                                 goto=calling_agent,
@@ -218,9 +229,12 @@ class CoderWorkflow:
                             try:
                                 result = await tool.ainvoke(tool_input)
                                 logger.info(f"Tool result: {result}")
-                                # If the tool returns a Command object (our routing tools), return it directly
-                                if isinstance(result, Command):
+                                
+                                # Check if result has Command attributes
+                                if hasattr(result, 'goto') and hasattr(result, 'update'):
+                                    logger.info(f"Command-like result detected: {result}")
                                     return result
+                                
                                 # For MCP tools, create a Command to return to the calling agent
                                 calling_agent = state.get('current_agent', 'orchestrator')
                                 return Command(
@@ -289,9 +303,21 @@ class CoderWorkflow:
 
         # Add conditional edges from MCP to all agents
         def route_mcp(state: MessagesState) -> Literal["orchestrator", "planner", "coder"]:
-            # The Command object from execute_tool determines where to go
-            # This function just defines the possible routes
-            return "orchestrator"  # Default, but Command object will override
+            """Route based on the Command's goto value."""
+            # Get the last message which should contain our Command result
+            last_message = state['messages'][-1]
+            logger.info(f"MCP routing - Message: {last_message}")
+            logger.info(f"MCP routing - Current agent: {state.get('current_agent', 'unknown')}")
+            
+            # For routing tools, use their goto value
+            if isinstance(last_message, ToolMessage):
+                if "Routing to planner" in last_message.content:
+                    return "planner"
+                elif "Routing to coder" in last_message.content:
+                    return "coder"
+            
+            # For non-routing tools, return to the calling agent
+            return state.get('current_agent', 'orchestrator')
 
         workflow.add_conditional_edges(
             "MCP",

@@ -167,20 +167,20 @@ async def route_to_coder(
     )
 
 @tool
-async def route_to_end(
+async def route_to_orchestrator(
     tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
-    """End the workflow."""
+    """Route to orchestrator."""
     return Command(
-        goto="__end__",
-        update={"messages": [ToolMessage(content="Ending workflow", tool_call_id=tool_call_id)]}
+        goto="orchestrator",
+        update={"messages": [ToolMessage(content="Routing to orchestrator", tool_call_id=tool_call_id)]}
     )
 
 # Initial routing tools list
 ROUTING_TOOLS: List[BaseTool] = [
     route_to_planner,
     route_to_coder,
-    route_to_end
+    route_to_orchestrator
 ]
 
 # Initial empty tools list - will be populated during startup

@@ -7,7 +7,7 @@ import json
 import logging
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
 from react_agent.configuration import Configuration
@@ -327,7 +327,7 @@ class CoderWorkflow:
             self.route_orchestrator,
             {
                 "MCP": "MCP",
-                "__end__": "__end__"
+                "__end__": END
             }
         )
 

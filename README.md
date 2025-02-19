@@ -19,8 +19,7 @@ The system consists of three main components:
    - Exposes tools through a simple HTTP interface
 
 2. **MCP Servers**: Individual servers that provide specific capabilities:
-   - Filesystem Server: File operations (read, write, list, search)
-   - Memory Server: Knowledge graph operations (entities, relations, queries)
+   - GitHub Server: Repo operations (read, write, list, search, create branch, create PR, etc.)
    - Additional servers can be added for more capabilities
 
 3. **Coding Agents**: There are three agents that collaborate to accomplish coding tasks:

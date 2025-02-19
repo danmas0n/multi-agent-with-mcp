@@ -68,23 +68,31 @@ def _create_tool_wrapper(tool_def: Dict[str, Any]) -> BaseTool:
     """
     async def wrapper(*args, **kwargs) -> Any:
         """Wrapper function that calls the MCP tool."""
-        # Convert args to kwargs if needed
-        if args:
-            logger.info(f"Converting args to kwargs: {args}")
-            if len(args) == 1 and isinstance(args[0], str):
-                # If we get a single string argument, treat it as the first schema property
-                schema = get_schema(tool_def)
-                if schema and schema.get("properties"):
+        # Check if tool has no parameters
+        schema = get_schema(tool_def)
+        has_params = schema and schema.get("properties")
+        
+        if not has_params:
+            # If tool has no parameters, ignore any passed arguments
+            logger.info(f"Tool {tool_def['name']} has no parameters, ignoring arguments")
+            result = mcp_client.call_tool(tool_def["name"], {})
+        else:
+            # Convert args to kwargs if needed
+            if args:
+                logger.info(f"Converting args to kwargs: {args}")
+                if len(args) == 1 and isinstance(args[0], str):
+                    # If we get a single string argument, treat it as the first schema property
                     first_prop = next(iter(schema["properties"]))
                     kwargs[first_prop] = args[0]
                     logger.info(f"Converted string arg to {first_prop}: {args[0]}")
-            elif len(args) == 1 and isinstance(args[0], dict):
-                # If we get a dict argument, merge it with kwargs
-                kwargs.update(args[0])
-                logger.info(f"Merged dict arg with kwargs: {args[0]}")
-        
-        logger.info(f"Tool wrapper calling with kwargs: {kwargs}")
-        result = mcp_client.call_tool(tool_def["name"], kwargs)
+                elif len(args) == 1 and isinstance(args[0], dict):
+                    # If we get a dict argument, merge it with kwargs, excluding __arg1
+                    filtered_args = {k: v for k, v in args[0].items() if k != '__arg1'}
+                    kwargs.update(filtered_args)
+                    logger.info(f"Merged filtered dict arg with kwargs: {filtered_args}")
+            
+            logger.info(f"Tool wrapper calling with kwargs: {kwargs}")
+            result = mcp_client.call_tool(tool_def["name"], kwargs)
         return result
     
     # Create Pydantic model for schema validation

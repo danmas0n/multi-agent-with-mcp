@@ -7,11 +7,11 @@ import json
 import logging
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import StateGraph, MessagesState
+from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
 from react_agent.configuration import Configuration
-from react_agent.state import InputState, State
+from react_agent.state import State
 from react_agent.tools import TOOLS, initialize_tools
 from react_agent.utils import load_chat_model
 from react_agent.agents.orchestrator import get_orchestrator
@@ -39,7 +39,7 @@ class CoderWorkflow:
         self.planner = get_planner(self.llm, TOOLS)
         self.coder = get_coder(self.llm, TOOLS)
 
-    def has_tool_calls(self, message: AIMessage) -> bool:
+    def has_tool_calls(self, message: AIMessage, state: State) -> bool:
         """Check if a message has any tool calls."""
         logger.info(f"Checking for tool calls in message: {message}")
         logger.info(f"Message content type: {type(message.content)}")
@@ -110,16 +110,20 @@ class CoderWorkflow:
         # Add tool_call_id from the tool use block
         input_data['tool_call_id'] = tool_use.get('id')
         
+        # Remove __arg1 if present
+        if '__arg1' in input_data:
+            del input_data['__arg1']
+        
         logger.info(f"Parsed tool input: {input_data}")
         return input_data
 
-    async def execute_tool(self, state: MessagesState) -> Command:
+    async def execute_tool(self, state: State) -> Command:
         """Execute tool with logging."""
-        last_message = state['messages'][-1]
+        last_message = state.messages[-1]
         logger.info("Executing tool...")
         logger.info(f"Message in execute_tool: {last_message}")
         logger.info(f"Message type: {type(last_message)}")
-        logger.info(f"Current agent: {state.get('current_agent', 'unknown')}")
+        logger.info(f"Current agent: {state.current_agent}")
         if hasattr(last_message, 'additional_kwargs'):
             logger.info(f"Additional kwargs in execute_tool: {last_message.additional_kwargs}")
         
@@ -157,19 +161,28 @@ class CoderWorkflow:
                         # Check if result has Command attributes
                         if hasattr(result, 'goto') and hasattr(result, 'update'):
                             logger.info(f"Command-like result detected: {result}")
+                            # Add current_agent to the update if not present
+                            if 'current_agent' not in result.update:
+                                result.update['current_agent'] = result.goto
                             return result
                         
-                        calling_agent = state.get('current_agent', 'orchestrator')
+                        calling_agent = state.current_agent or 'orchestrator'
                         return Command(
                             goto=calling_agent,
-                            update={"messages": [HumanMessage(content=str(result))]}
+                            update={
+                                "messages": [HumanMessage(content=str(result))],
+                                "current_agent": calling_agent
+                            }
                         )
                     except Exception as e:
                         logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
-                        calling_agent = state.get('current_agent', 'orchestrator')
+                        calling_agent = state.current_agent or 'orchestrator'
                         return Command(
                             goto=calling_agent,
-                            update={"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                            update={
+                                "messages": [HumanMessage(content=f"Error: {str(e)}")],
+                                "current_agent": calling_agent
+                            }
                         )
         
         # Then check for tool_calls in additional_kwargs
@@ -198,19 +211,28 @@ class CoderWorkflow:
                             # Check if result has Command attributes
                             if hasattr(result, 'goto') and hasattr(result, 'update'):
                                 logger.info(f"Command-like result detected: {result}")
+                                # Add current_agent to the update if not present
+                                if 'current_agent' not in result.update:
+                                    result.update['current_agent'] = result.goto
                                 return result
                             
-                            calling_agent = state.get('current_agent', 'orchestrator')
+                            calling_agent = state.current_agent or 'orchestrator'
                             return Command(
                                 goto=calling_agent,
-                                update={"messages": [HumanMessage(content=str(result))]}
+                                update={
+                                    "messages": [HumanMessage(content=str(result))],
+                                    "current_agent": calling_agent
+                                }
                             )
                         except Exception as e:
                             logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
-                            calling_agent = state.get('current_agent', 'orchestrator')
+                            calling_agent = state.current_agent or 'orchestrator'
                             return Command(
                                 goto=calling_agent,
-                                update={"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                                update={
+                                    "messages": [HumanMessage(content=f"Error: {str(e)}")],
+                                    "current_agent": calling_agent
+                                }
                             )
         
         # Then check for tool_use in content list
@@ -233,38 +255,50 @@ class CoderWorkflow:
                                 # Check if result has Command attributes
                                 if hasattr(result, 'goto') and hasattr(result, 'update'):
                                     logger.info(f"Command-like result detected: {result}")
+                                    # Add current_agent to the update if not present
+                                    if 'current_agent' not in result.update:
+                                        result.update['current_agent'] = result.goto
                                     return result
                                 
                                 # For MCP tools, create a Command to return to the calling agent
-                                calling_agent = state.get('current_agent', 'orchestrator')
+                                calling_agent = state.current_agent or 'orchestrator'
                                 return Command(
                                     goto=calling_agent,
-                                    update={"messages": [HumanMessage(content=str(result))]}
+                                    update={
+                                        "messages": [HumanMessage(content=str(result))],
+                                        "current_agent": calling_agent
+                                    }
                                 )
                             except Exception as e:
                                 logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
-                                calling_agent = state.get('current_agent', 'orchestrator')
+                                calling_agent = state.current_agent or 'orchestrator'
                                 return Command(
                                     goto=calling_agent,
-                                    update={"messages": [HumanMessage(content=f"Error: {str(e)}")]}
+                                    update={
+                                        "messages": [HumanMessage(content=f"Error: {str(e)}")],
+                                        "current_agent": calling_agent
+                                    }
                                 )
         
         logger.warning("No tool call found in message")
         return Command(
             goto='orchestrator',
-            update={"messages": []}
+            update={
+                "messages": [],
+                "current_agent": 'orchestrator'
+            }
         )
 
-    def route_orchestrator(self, state: MessagesState) -> Literal["MCP", "__end__"]:
+    def route_orchestrator(self, state: State) -> Literal["MCP", "__end__"]:
         """Route next steps for orchestrator agent."""
-        last_message = state['messages'][-1]
+        last_message = state.messages[-1]
         logger.info(f"Orchestrator routing - Message type: {type(last_message)}")
         logger.info(f"Full message content: {last_message.content}")
         if hasattr(last_message, 'additional_kwargs'):
             logger.info(f"Additional kwargs: {last_message.additional_kwargs}")
         
         # Check for tool calls
-        has_tools = self.has_tool_calls(last_message)
+        has_tools = self.has_tool_calls(last_message, state)
         logger.info(f"Message has tool calls: {has_tools}")
         if has_tools:
             logger.info("Found tool calls - Routing to MCP")
@@ -276,7 +310,7 @@ class CoderWorkflow:
 
     def setup_workflow(self):
         """Set up the workflow graph."""
-        workflow = StateGraph(MessagesState)
+        workflow = StateGraph(State)
 
         # Add nodes for each agent
         workflow.add_node("orchestrator", self.orchestrator.run)
@@ -302,12 +336,12 @@ class CoderWorkflow:
         workflow.add_edge("coder", "MCP")
 
         # Add conditional edges from MCP to all agents
-        def route_mcp(state: MessagesState) -> Literal["orchestrator", "planner", "coder"]:
+        def route_mcp(state: State) -> Literal["orchestrator", "planner", "coder"]:
             """Route based on the Command's goto value."""
             # Get the last message which should contain our Command result
-            last_message = state['messages'][-1]
+            last_message = state.messages[-1]
             logger.info(f"MCP routing - Message: {last_message}")
-            logger.info(f"MCP routing - Current agent: {state.get('current_agent', 'unknown')}")
+            logger.info(f"MCP routing - Current agent: {state.current_agent}")
             
             # For routing tools, use their goto value
             if isinstance(last_message, ToolMessage):
@@ -317,7 +351,7 @@ class CoderWorkflow:
                     return "coder"
             
             # For non-routing tools, return to the calling agent
-            return state.get('current_agent', 'orchestrator')
+            return state.current_agent or 'orchestrator'
 
         workflow.add_conditional_edges(
             "MCP",
@@ -339,8 +373,9 @@ class CoderWorkflow:
         logger.info(f"Initial task: {task}")
 
         # Create proper initial state with HumanMessage
-        initial_state = MessagesState(
-            messages=[HumanMessage(content=task)]
+        initial_state = State(
+            messages=[HumanMessage(content=task)],
+            current_agent="orchestrator"
         )
 
         config = {"recursion_limit": 50}
